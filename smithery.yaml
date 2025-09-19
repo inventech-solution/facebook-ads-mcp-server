@@ -1,3 +1,9 @@
+# Smithery configuration file describing how to launch the MCP server.
+#
+# Smithery can automatically scaffold Docker images and start commands for MCP
+# services.  This file documents the stdio-based start procedure for the
+# facebook-ads server, including the expected ``fbToken`` parameter that must be
+# supplied by the host application.
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 
 startCommand:
