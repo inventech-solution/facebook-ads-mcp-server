@@ -1,14 +1,29 @@
-# server.py
+"""Facebook Ads MCP server implementation.
+
+This module wires the Meta/Facebook Marketing API into an MCP (Model Context
+Protocol) server so that a client can issue high-level tool calls.  The helper
+functions at the top of the file consolidate common behavior such as token
+retrieval, HTTP transport, and parameter serialization.  Below those helpers is
+an extensive collection of `@mcp.tool` functions that expose Facebook resources
+and insights endpoints.  Each tool is documented inline so callers understand
+the exact data that is fetched, how pagination behaves, and what optional
+filters are supported.
+"""
+
 from mcp.server.fastmcp import FastMCP
 import requests
 from typing import Dict, List, Optional, Any
 import json
-import requests
 import sys
 
     
 
 # --- Constants ---
+#
+# The API version and base URL are centralized here so that bumping versions in
+# the future can happen in one place.  The `DEFAULT_AD_ACCOUNT_FIELDS` list is
+# reused by multiple tools when the caller does not supply an explicit `fields`
+# argument.
 FB_API_VERSION = "v22.0"
 FB_GRAPH_URL = f"https://graph.facebook.com/{FB_API_VERSION}"
 DEFAULT_AD_ACCOUNT_FIELDS = [
@@ -27,15 +42,20 @@ FB_ACCESS_TOKEN = None
 # --- Helper Functions ---
 
 def _get_fb_access_token() -> str:
-    """
-    Get Facebook access token from command line arguments.
-    Caches the token in memory after first read.
+    """Retrieve and cache the access token passed via ``--fb-token``.
+
+    The MCP server is designed to be launched with a long-lived token supplied
+    on the command line.  This helper grabs the token the first time it is
+    needed, stores it in a module-level variable for subsequent calls, and raises
+    a clear error if the CLI flag is missing so the operator can fix their
+    invocation.
 
     Returns:
-        str: The Facebook access token.
+        str: The Facebook access token extracted from ``sys.argv``.
 
     Raises:
-        Exception: If no token is provided in command line arguments.
+        Exception: If ``--fb-token`` is absent or the flag is provided without a
+        value.
     """
     global FB_ACCESS_TOKEN
     if FB_ACCESS_TOKEN is None:
@@ -53,7 +73,23 @@ def _get_fb_access_token() -> str:
     return FB_ACCESS_TOKEN
 
 def _make_graph_api_call(url: str, params: Dict[str, Any]) -> Dict:
-    """Makes a GET request to the Facebook Graph API and handles the response."""
+    """Issue a GET request to the Graph API and return the decoded payload.
+
+    This small wrapper centralizes HTTP error handling so every tool benefits
+    from consistent retry behavior and logging.  It raises any request
+    exceptions, letting the caller surface a meaningful error message upstream.
+
+    Args:
+        url: Fully-qualified Graph API endpoint (including node and edge).
+        params: Query string parameters to send with the request.
+
+    Returns:
+        Dict: Parsed JSON response from the Graph API.
+
+    Raises:
+        requests.exceptions.RequestException: Propagated if the Graph API call
+        fails due to network issues or a non-2xx HTTP status.
+    """
     try:
         response = requests.get(url, params=params)
         response.raise_for_status()  # Raises HTTPError for bad responses (4xx or 5xx)
@@ -67,7 +103,22 @@ def _make_graph_api_call(url: str, params: Dict[str, Any]) -> Dict:
 
 
 def _prepare_params(base_params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-    """Adds optional parameters to a dictionary if they are not None. Handles JSON encoding."""
+    """Merge optional parameters into a base dictionary with API-safe encoding.
+
+    The Facebook Ads API expects complex arguments like filters, time ranges, or
+    lists of fields to be serialized in specific ways (JSON structures or
+    comma-separated strings).  This helper inspects each supplied keyword and
+    ensures it is correctly transformed before being attached to the outbound
+    request.
+
+    Args:
+        base_params: The starting dictionary containing required parameters.
+        **kwargs: Optional parameters that should be conditionally included.
+
+    Returns:
+        Dict[str, Any]: A copy of ``base_params`` populated with any provided
+        optional arguments encoded to meet Graph API expectations.
+    """
     params = base_params.copy()
     for key, value in kwargs.items():
         if value is not None:
@@ -90,14 +141,41 @@ def _prepare_params(base_params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
 
 
 def _fetch_node(node_id: str, **kwargs) -> Dict:
-    """Helper to fetch a single object (node) by its ID."""
+    """Fetch a single Graph API node by ID with optional field selection.
+
+    Many tools need to retrieve a single resource (ad account, ad set, campaign,
+    etc.).  This helper encapsulates the access token injection, URL assembly,
+    and parameter preparation so that the higher-level tool functions can stay
+    focused on describing the data they expose.
+
+    Args:
+        node_id: The identifier for the Graph resource to retrieve.
+        **kwargs: Optional query parameters such as ``fields`` or ``date_format``.
+
+    Returns:
+        Dict: JSON response describing the requested node.
+    """
     access_token = _get_fb_access_token()
     url = f"{FB_GRAPH_URL}/{node_id}"
     params = _prepare_params({'access_token': access_token}, **kwargs)
     return _make_graph_api_call(url, params)
 
 def _fetch_edge(parent_id: str, edge_name: str, **kwargs) -> Dict:
-    """Helper to fetch a collection (edge) related to a parent object."""
+    """Fetch a collection (edge) that belongs to a parent Graph resource.
+
+    This routine understands the special handling required for activity-related
+    endpoints where the API accepts either ``time_range`` objects or legacy
+    ``since``/``until`` parameters.  Like ``_fetch_node``, it hides the repetitive
+    plumbing code needed by the user-facing MCP tools.
+
+    Args:
+        parent_id: Identifier of the resource that owns the edge (e.g., ``act_`` ID).
+        edge_name: Name of the edge to query, such as ``ads`` or ``activities``.
+        **kwargs: Additional query parameters forwarded to the edge request.
+
+    Returns:
+        Dict: JSON response containing the edge data and pagination metadata.
+    """
     access_token = _get_fb_access_token()
     url = f"{FB_GRAPH_URL}/{parent_id}/{edge_name}"
     
@@ -145,7 +223,43 @@ def _build_insights_params(
     until: Optional[str] = None,
     locale: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Builds the common parameter dictionary for insights API calls."""
+    """Normalize every supported insights argument into a request-ready dict.
+
+    The insights endpoints expose a very large set of optional parameters for
+    filtering, attribution, time slicing, and pagination.  Centralizing their
+    transformation in this helper keeps each specific insights tool concise and
+    guarantees identical behavior regardless of the entity level (account,
+    campaign, ad set, or ad).
+
+    Args:
+        params: Seed dictionary containing the ``access_token``.
+        fields: Specific metrics or dimensions requested by the caller.
+        date_preset: Named time window (ignored if concrete ranges are supplied).
+        time_range: Single time window specified by ``since``/``until`` dates.
+        time_ranges: List of multiple comparison windows.
+        time_increment: Aggregation bucket size (days or ``monthly``/``all_days``).
+        level: Reporting level requested from the API.
+        action_attribution_windows: Attribution windows for action metrics.
+        action_breakdowns: Additional breakdowns applied to action metrics.
+        action_report_time: Time reference for attributing actions.
+        breakdowns: Non-action breakdown dimensions (age, country, placement, etc.).
+        default_summary: Whether to add an aggregate summary row.
+        use_account_attribution_setting: Force usage of account-level attribution defaults.
+        use_unified_attribution_setting: Opt into unified attribution behavior.
+        filtering: Structured filters limiting which rows are returned.
+        sort: Sorting expression accepted by the API.
+        limit: Page size for cursor-based pagination.
+        after: Cursor pointing to the next page of results.
+        before: Cursor pointing to the previous page of results.
+        offset: Offset-based pagination value (rarely used).
+        since: Lower bound for time-based pagination when no range objects exist.
+        until: Upper bound for time-based pagination when no range objects exist.
+        locale: Locale string controlling language of textual fields.
+
+    Returns:
+        Dict[str, Any]: Fully-populated parameter dictionary suitable for passing
+        to ``requests.get``.
+    """
     
     # Use the generic parameter builder first
     params = _prepare_params(

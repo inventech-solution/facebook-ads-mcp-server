@@ -1,2 +1,5 @@
+# Dependency manifest for the Facebook Ads MCP server.
+# - mcp: Provides the FastMCP server runtime that exposes tools over stdio.
+# - requests: Handles all outbound HTTP calls to Facebook's Graph API.
 mcp>=1.6.0
 requests>=2.32.3
