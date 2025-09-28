@@ -1,0 +1,4 @@
+name = "facebook-ads-mcp-server"
+main = "worker.js"
+compatibility_date = "2024-09-28"
+workers_dev = true
