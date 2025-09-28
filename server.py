@@ -200,13 +200,13 @@ def _build_insights_params(
 @mcp.tool()
 def list_ad_accounts() -> Dict:
     """List down the ad accounts and their names associated with your Facebook account.
-        CRITICAL: This function MUST automatically fetch ALL pages using pagination. 
-        When the response contains a 'paging.next' URL, IMMEDIATELY and AUTOMATICALLY 
-        use the facebook_fetch_pagination_url tool to fetch the next page. Continue 
-        this process until no 'next' URL exists. Do NOT ask the user for permission 
-        to continue pagination. Do NOT stop after the first page. Always return the 
-        complete consolidated list of ALL ad accounts across all pages in a single 
-        response. This is a requirement, not optional behavior."""
+
+    CRITICAL: This function MUST automatically fetch **all** pages using pagination.
+    When the response contains a ``paging.next`` URL, it immediately and
+    automatically uses :func:`fetch_pagination_url` to retrieve the next page. This
+    continues until no ``next`` URL exists. It never asks the user for permission,
+    never stops after the first page, and always returns the complete consolidated
+    list of **all** ad accounts across every page in a single response."""
     # This uses a specific endpoint structure not fitting _fetch_node/_fetch_edge easily
     access_token = _get_fb_access_token()
     url = f"{FB_GRAPH_URL}/me"
@@ -214,7 +214,39 @@ def list_ad_accounts() -> Dict:
         'access_token': access_token,
         'fields': 'adaccounts{name}' # Specific field structure
     }
-    return _make_graph_api_call(url, params)
+    result = _make_graph_api_call(url, params)
+
+    adaccounts_section = result.get('adaccounts')
+    if not isinstance(adaccounts_section, dict):
+        return result
+
+    aggregated_accounts = list(adaccounts_section.get('data', []))
+    next_url = adaccounts_section.get('paging', {}).get('next') if isinstance(adaccounts_section.get('paging'), dict) else None
+
+    while next_url:
+        page = fetch_pagination_url(url=next_url)
+        page_data = page.get('data', []) if isinstance(page, dict) else []
+        if isinstance(page_data, list):
+            aggregated_accounts.extend(page_data)
+        next_url = page.get('paging', {}).get('next') if isinstance(page.get('paging'), dict) else None
+
+    deduped_accounts = []
+    seen_ids = set()
+    for account in aggregated_accounts:
+        account_id = account.get('id') if isinstance(account, dict) else None
+        if account_id and account_id in seen_ids:
+            continue
+        if account_id:
+            seen_ids.add(account_id)
+        deduped_accounts.append(account)
+    adaccounts_section['data'] = deduped_accounts
+
+    paging_section = adaccounts_section.get('paging')
+    if isinstance(paging_section, dict):
+        paging_section.pop('next', None)
+        paging_section.pop('previous', None)
+
+    return result
 
 
 @mcp.tool()
@@ -268,13 +300,13 @@ def get_adaccount_insights(
     performance data, such as impressions, reach, cost, conversions, and more. It supports
     various options for filtering, time breakdowns, and attribution settings. Note that
     some metrics returned might be estimated or in development
-    CRITICAL: This function MUST automatically fetch ALL pages using pagination. 
-    When the response contains a 'paging.next' URL, IMMEDIATELY and AUTOMATICALLY 
-    use the facebook_fetch_pagination_url tool to fetch the next page. Continue 
-    this process until no 'next' URL exists. Do NOT ask the user for permission 
-    to continue pagination. Do NOT stop after the first page. Always return the 
-    complete consolidated list of ALL ad accounts across all pages in a single 
-    response. This is a requirement, not optional behavior..
+    CRITICAL: This function MUST automatically fetch **all** pages using pagination.
+    When the response contains a ``paging.next`` URL, it immediately and
+    automatically uses :func:`fetch_pagination_url` to retrieve the next page. This
+    continues until no ``next`` URL exists. It never asks the user for permission,
+    never stops after the first page, and always returns the complete consolidated
+    list of **all** ad account insight rows across every page in a single
+    response. This is a requirement, not optional behavior.
 
     Args:
         act_id (str): The target ad account ID, prefixed with 'act_', e.g., 'act_1234567890'.
@@ -398,7 +430,26 @@ def get_adaccount_insights(
         locale=locale
     )
 
-    return _make_graph_api_call(url, params)
+    initial_response = _make_graph_api_call(url, params)
+
+    all_rows = list(initial_response.get('data', [])) if isinstance(initial_response.get('data'), list) else []
+    next_url = initial_response.get('paging', {}).get('next') if isinstance(initial_response.get('paging'), dict) else None
+
+    while next_url:
+        page = fetch_pagination_url(url=next_url)
+        page_data = page.get('data', []) if isinstance(page, dict) else []
+        if isinstance(page_data, list):
+            all_rows.extend(page_data)
+        next_url = page.get('paging', {}).get('next') if isinstance(page.get('paging'), dict) else None
+
+    initial_response['data'] = all_rows
+
+    paging_section = initial_response.get('paging')
+    if isinstance(paging_section, dict):
+        paging_section.pop('next', None)
+        paging_section.pop('previous', None)
+
+    return initial_response
 
 @mcp.tool()
 def get_campaign_insights(
