@@ -24,6 +24,9 @@ mcp = FastMCP("fb-api-mcp-server")
 # Add a global variable to store the token
 FB_ACCESS_TOKEN = None
 
+# Cache for automatically resolving a default ad account.
+DEFAULT_AD_ACCOUNT: Optional[Dict[str, Any]] = None
+
 # --- Helper Functions ---
 
 def _get_fb_access_token() -> str:
@@ -51,6 +54,60 @@ def _get_fb_access_token() -> str:
             raise Exception("Facebook token must be provided via '--fb-token' command line argument")
 
     return FB_ACCESS_TOKEN
+
+
+def _get_default_ad_account(force_refresh: bool = False) -> Dict[str, Any]:
+    """Fetch and cache the first accessible ad account for the current token."""
+    global DEFAULT_AD_ACCOUNT
+
+    if force_refresh or DEFAULT_AD_ACCOUNT is None:
+        access_token = _get_fb_access_token()
+        url = f"{FB_GRAPH_URL}/me"
+        params = {
+            'access_token': access_token,
+            'fields': 'adaccounts.limit(1){id,account_id,name}'
+        }
+        result = _make_graph_api_call(url, params)
+
+        adaccounts = []
+        adaccounts_section = result.get('adaccounts')
+        if isinstance(adaccounts_section, dict):
+            maybe_data = adaccounts_section.get('data')
+            if isinstance(maybe_data, list):
+                adaccounts = maybe_data
+
+        if adaccounts:
+            first_account = adaccounts[0]
+            if isinstance(first_account, dict):
+                resolved_id = first_account.get('id')
+                if not resolved_id:
+                    account_id = first_account.get('account_id')
+                    if account_id:
+                        account_id_str = str(account_id)
+                        resolved_id = account_id_str if account_id_str.startswith('act_') else f"act_{account_id_str}"
+
+                if resolved_id:
+                    DEFAULT_AD_ACCOUNT = {
+                        'id': resolved_id,
+                        'name': first_account.get('name')
+                    }
+
+    if DEFAULT_AD_ACCOUNT is None:
+        raise ValueError("Unable to automatically determine a default ad account. Please specify an 'act_id'.")
+
+    return DEFAULT_AD_ACCOUNT
+
+
+def _resolve_act_id(act_id: Optional[str]) -> str:
+    """Return the provided act_id or fall back to the cached default ad account ID."""
+    if act_id:
+        return act_id
+
+    default_account = _get_default_ad_account()
+    resolved_id = default_account.get('id') if isinstance(default_account, dict) else None
+    if not resolved_id:
+        raise ValueError("Unable to determine ad account ID. Provide 'act_id' explicitly.")
+    return resolved_id
 
 def _make_graph_api_call(url: str, params: Dict[str, Any]) -> Dict:
     """Makes a GET request to the Facebook Graph API and handles the response."""
@@ -250,10 +307,12 @@ def list_ad_accounts() -> Dict:
 
 
 @mcp.tool()
-def get_details_of_ad_account(act_id: str, fields: list[str] = None) -> Dict:
+def get_details_of_ad_account(act_id: Optional[str] = None, fields: list[str] = None) -> Dict:
     """Get details of a specific ad account as per the fields provided
     Args:
-        act_id: The act ID of the ad account, example: act_1234567890
+        act_id: The act ID of the ad account, example: act_1234567890. If omitted,
+            the server automatically resolves the first accessible ad account for
+            the provided access token.
         fields: The fields to get from the ad account. If None, defaults are used.
                 Available fields include: name, business_name, age, account_status,
                 balance, amount_spent, attribution_spec, account_id, business,
@@ -263,14 +322,15 @@ def get_details_of_ad_account(act_id: str, fields: list[str] = None) -> Dict:
         A dictionary containing the details of the ad account
     """
     effective_fields = fields if fields is not None else DEFAULT_AD_ACCOUNT_FIELDS
-    return _fetch_node(node_id=act_id, fields=effective_fields)
+    effective_act_id = _resolve_act_id(act_id)
+    return _fetch_node(node_id=effective_act_id, fields=effective_fields)
 
 
 # --- Insigbts API Tools ---
 
 @mcp.tool()
 def get_adaccount_insights(
-    act_id: str,
+    act_id: Optional[str] = None,
     fields: Optional[List[str]] = None,
     date_preset: str = 'last_30d',
     time_range: Optional[Dict[str, str]] = None,
@@ -310,6 +370,8 @@ def get_adaccount_insights(
 
     Args:
         act_id (str): The target ad account ID, prefixed with 'act_', e.g., 'act_1234567890'.
+            If omitted, the server automatically resolves the first accessible ad
+            account for the provided access token.
         fields (Optional[List[str]]): A list of specific metrics and fields to retrieve.
             If omitted, a default set is returned by the API. Common examples include:
                 - 'account_currency', 'account_id', 'account_name'
@@ -401,7 +463,8 @@ def get_adaccount_insights(
         ```
     """
     access_token = _get_fb_access_token()
-    url = f"{FB_GRAPH_URL}/{act_id}/insights"
+    effective_act_id = _resolve_act_id(act_id)
+    url = f"{FB_GRAPH_URL}/{effective_act_id}/insights"
     params = {'access_token': access_token}
 
     params = _build_insights_params(
@@ -1146,7 +1209,7 @@ def get_ad_by_id(ad_id: str, fields: Optional[List[str]] = None) -> Dict:
 
 @mcp.tool()
 def get_ads_by_adaccount(
-    act_id: str,
+    act_id: Optional[str] = None,
     fields: Optional[List[str]] = None,
     filtering: Optional[List[dict]] = None,
     limit: Optional[int] = 25,
@@ -1163,8 +1226,10 @@ def get_ads_by_adaccount(
     various filtering options, pagination, and field selection.
     
     Args:
-        act_id (str): The ID of the ad account to retrieve ads from, prefixed with 'act_', 
-                      e.g., 'act_1234567890'.
+        act_id (str): The ID of the ad account to retrieve ads from, prefixed with 'act_',
+                      e.g., 'act_1234567890'. If omitted, the server automatically
+                      resolves the first accessible ad account for the provided
+                      access token.
         fields (Optional[List[str]]): A list of specific fields to retrieve for each ad. 
                                       If None, a default set of fields will be returned.
                                       Common fields include:
@@ -1226,7 +1291,8 @@ def get_ads_by_adaccount(
         ```
     """
     access_token = _get_fb_access_token()
-    url = f"{FB_GRAPH_URL}/{act_id}/ads"
+    effective_act_id = _resolve_act_id(act_id)
+    url = f"{FB_GRAPH_URL}/{effective_act_id}/ads"
     params = {
         'access_token': access_token
     }
@@ -1606,7 +1672,7 @@ def get_adsets_by_ids(
 
 @mcp.tool()
 def get_adsets_by_adaccount(
-    act_id: str,
+    act_id: Optional[str] = None,
     fields: Optional[List[str]] = None,
     filtering: Optional[List[dict]] = None,
     limit: Optional[int] = 25,
@@ -1624,8 +1690,10 @@ def get_adsets_by_adaccount(
     various filtering options, pagination, and field selection.
     
     Args:
-        act_id (str): The ID of the ad account to retrieve ad sets from, prefixed with 'act_', 
-                      e.g., 'act_1234567890'.
+        act_id (str): The ID of the ad account to retrieve ad sets from, prefixed with 'act_',
+                      e.g., 'act_1234567890'. If omitted, the server automatically
+                      resolves the first accessible ad account for the provided
+                      access token.
         fields (Optional[List[str]]): A list of specific fields to retrieve for each ad set. 
                                       If None, a default set of fields will be returned.
                                       See get_adset_by_id for a comprehensive list of available fields.
@@ -1693,7 +1761,8 @@ def get_adsets_by_adaccount(
         ```
     """
     access_token = _get_fb_access_token()
-    url = f"{FB_GRAPH_URL}/{act_id}/adsets"
+    effective_act_id = _resolve_act_id(act_id)
+    url = f"{FB_GRAPH_URL}/{effective_act_id}/adsets"
     params = {
         'access_token': access_token
     }
@@ -1944,7 +2013,7 @@ def get_campaign_by_id(
 
 @mcp.tool()
 def get_campaigns_by_adaccount(
-    act_id: str,
+    act_id: Optional[str] = None,
     fields: Optional[List[str]] = None,
     filtering: Optional[List[dict]] = None,
     limit: Optional[int] = 25,
@@ -1967,8 +2036,10 @@ def get_campaigns_by_adaccount(
     various filtering options, pagination, and field selection.
     
     Args:
-        act_id (str): The ID of the ad account to retrieve campaigns from, prefixed with 'act_', 
-                      e.g., 'act_1234567890'.
+        act_id (str): The ID of the ad account to retrieve campaigns from, prefixed with 'act_',
+                      e.g., 'act_1234567890'. If omitted, the server automatically
+                      resolves the first accessible ad account for the provided
+                      access token.
         fields (Optional[List[str]]): A list of specific fields to retrieve for each campaign.
                                       If None, a default set of fields will be returned.
                                       See get_campaign_by_id for a comprehensive list of available fields.
@@ -2057,7 +2128,8 @@ def get_campaigns_by_adaccount(
         ```
     """
     access_token = _get_fb_access_token()
-    url = f"{FB_GRAPH_URL}/{act_id}/campaigns"
+    effective_act_id = _resolve_act_id(act_id)
+    url = f"{FB_GRAPH_URL}/{effective_act_id}/campaigns"
     params = {
         'access_token': access_token
     }
@@ -2113,7 +2185,7 @@ def get_campaigns_by_adaccount(
 
 @mcp.tool()
 def get_activities_by_adaccount(
-    act_id: str,
+    act_id: Optional[str] = None,
     fields: Optional[List[str]] = None,
     limit: Optional[int] = None,
     after: Optional[str] = None,
@@ -2131,6 +2203,8 @@ def get_activities_by_adaccount(
     
     Args:
         act_id (str): The ID of the ad account, prefixed with 'act_', e.g., 'act_1234567890'.
+            If omitted, the server automatically resolves the first accessible ad
+            account for the provided access token.
         fields (Optional[List[str]]): A list of specific fields to retrieve. If None,
             all available fields will be returned. Available fields include:
             - 'actor_id': ID of the user who made the change
@@ -2202,7 +2276,8 @@ def get_activities_by_adaccount(
         ```
     """
     access_token = _get_fb_access_token()
-    url = f"{FB_GRAPH_URL}/{act_id}/activities"
+    effective_act_id = _resolve_act_id(act_id)
+    url = f"{FB_GRAPH_URL}/{effective_act_id}/activities"
     params = {
         'access_token': access_token
     }
