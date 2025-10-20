@@ -1,7 +1,7 @@
 # Facebook/Meta Ads MCP Server
 
-[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/gomarble-ai/facebook-ads-mcp-server)](https://archestra.ai/mcp-catalog/gomarble-ai__facebook-ads-mcp-server)
-[![smithery badge](https://smithery.ai/badge/@gomarble-ai/facebook-ads-mcp-server)](https://smithery.ai/server/@gomarble-ai/facebook-ads-mcp-server)
+[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/adsinsight-ai/facebook-ads-mcp-server)](https://archestra.ai/mcp-catalog/adsinsight-ai__facebook-ads-mcp-server)
+[![smithery badge](https://smithery.ai/badge/@adsinsight-ai/facebook-ads-mcp-server)](https://smithery.ai/server/@adsinsight-ai/facebook-ads-mcp-server)
 
 This project provides an MCP server acting as an interface to the Meta Ads, enabling programmatic access to Meta Ads data and management features.
 
@@ -11,7 +11,7 @@ This project provides an MCP server acting as an interface to the Meta Ads, enab
 
 For a simpler setup experience, we offer ready-to-use installers:
 
-👉 **Download installer -** [https://gomarble.ai/mcp](https://gomarble.ai/mcp)
+👉 **Download installer -** [https://adsinsight.ai/mcp](https://adsinsight.ai/mcp)
 
 ## Join our community for help and updates
 
@@ -19,21 +19,21 @@ For a simpler setup experience, we offer ready-to-use installers:
 
 ## Try Google ads mcp server also
 
-👉 **Google Ads MCP -** [Google Ads MCP](https://github.com/gomarble-ai/google-ads-mcp-server)
+👉 **Google Ads MCP -** [Google Ads MCP](https://github.com/adsinsight-ai/google-ads-mcp-server)
 
 ### What It Does
 
 - Installs and configures the MCP server locally
 - Automatically handles environment setup
 - Prompts for Meta token authentication during the process which is optional
-- If Meta access token is not provided then connect to GoMarble's server to create the token on your behalf
+- If Meta access token is not provided then connect to AdsInsight's server to create the token on your behalf
 
 ### Important Disclaimer
 
 This setup **does not require** you to manually obtain a Meta Developer Access Token.
 
-Instead, it connects securely to **GoMarble's server to create the token on your behalf**.
-GoMarble **does not store** your token — it is saved locally on your machine for use with the MCP server.
+Instead, it connects securely to **AdsInsight's server to create the token on your behalf**.
+AdsInsight **does not store** your token — it is saved locally on your machine for use with the MCP server.
 
 ---
 
@@ -144,8 +144,8 @@ This project is licensed under the MIT License.
 
 ## Installing via Smithery
 
-To install Facebook Ads Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@gomarble-ai/facebook-ads-mcp-server):
+To install Facebook Ads Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@adsinsight-ai/facebook-ads-mcp-server):
 
 ```bash
-npx -y @smithery/cli install @gomarble-ai/facebook-ads-mcp-server --client claude
+npx -y @smithery/cli install @adsinsight-ai/facebook-ads-mcp-server --client claude
 ```

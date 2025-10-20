@@ -6,9 +6,9 @@
   "description": "A Python MCP server for Facebook Ads API integration",
   "long_description": "This extension provides comprehensive Facebook Ads management capabilities through a Python MCP server. It enables programmatic access to Facebook Ads data and management features, including account management, campaign insights, ad set operations, and performance analytics through the Facebook Graph API.",
   "author": {
-    "name": "GoMarble AI",
-    "email": "support@gomarble.ai",
-    "url": "https://github.com/gomarble-ai"
+    "name": "AdsInsight AI",
+    "email": "support@adsinsight.ai",
+    "url": "https://github.com/adsinsight-ai"
   },
   "icon": "favicon.png",
   "server": {
