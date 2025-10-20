@@ -43,7 +43,7 @@ export default {
       <h1>${manifest.display_name ?? manifest.name}</h1>
       <p>${manifest.description}</p>
       <ul>
-        <li><a href="https://github.com/gomarble-ai/facebook-ads-mcp-server">Project documentation</a></li>
+        <li><a href="https://github.com/adsinsight-ai/facebook-ads-mcp-server">Project documentation</a></li>
         <li><a href="/manifest.json">Manifest</a></li>
       </ul>
     </main>
