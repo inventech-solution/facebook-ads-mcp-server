@@ -142,6 +142,7 @@ def _get_default_ad_account(force_refresh: bool = False) -> Dict[str, Any]:
                         resolved_id = account_id_str if account_id_str.startswith('act_') else f"act_{account_id_str}"
 
                 if resolved_id:
+                    resolved_id = _normalize_act_id(resolved_id)
                     DEFAULT_AD_ACCOUNT = {
                         'id': resolved_id,
                         'name': first_account.get('name')
@@ -153,10 +154,20 @@ def _get_default_ad_account(force_refresh: bool = False) -> Dict[str, Any]:
     return DEFAULT_AD_ACCOUNT
 
 
+def _normalize_act_id(act_id: str) -> str:
+    """Ensure an ad account ID is prefixed with ``act_`` when missing."""
+
+    act_id_str = str(act_id).strip()
+    if not act_id_str:
+        raise ValueError("Ad account ID cannot be empty.")
+
+    return act_id_str if act_id_str.startswith('act_') else f"act_{act_id_str}"
+
+
 def _resolve_act_id(act_id: Optional[str]) -> str:
     """Return the provided act_id or fall back to the cached default ad account ID."""
     if act_id:
-        return act_id
+        return _normalize_act_id(act_id)
 
     default_account = _get_default_ad_account()
     resolved_id = default_account.get('id') if isinstance(default_account, dict) else None
@@ -309,6 +320,59 @@ def _build_insights_params(
 
 
 # --- MCP Tools ---
+
+@mcp.tool()
+def set_access_token(
+    access_token: str,
+    act_id: Optional[str] = None,
+    act_name: Optional[str] = None
+) -> Dict[str, Any]:
+    """Configure the Facebook access token (and optional default ad account).
+
+    Args:
+        access_token: A valid Facebook Marketing API access token. This token is used for
+            all subsequent API calls unless overridden by the ``MCP_CONFIG`` environment
+            variable or command-line flag.
+        act_id: Optional ad account identifier associated with the token. Accepts either
+            the canonical ``act_<ID>`` format or the raw numeric ID. When provided, this
+            becomes the default ad account for tools that allow ``act_id`` to be omitted.
+        act_name: Optional friendly name for the ad account. Stored alongside the cached
+            default account for reference when returning metadata.
+
+    Returns:
+        Dict[str, Any]: Confirmation of the applied configuration, including the cached
+        default ad account (if supplied).
+    """
+
+    global FB_ACCESS_TOKEN, DEFAULT_AD_ACCOUNT
+
+    if not isinstance(access_token, str) or not access_token.strip():
+        raise ValueError("A non-empty Facebook access token must be provided.")
+
+    FB_ACCESS_TOKEN = access_token.strip()
+    DEFAULT_AD_ACCOUNT = None
+
+    if act_id:
+        normalized_id = _normalize_act_id(act_id)
+        DEFAULT_AD_ACCOUNT = {
+            'id': normalized_id
+        }
+        if act_name:
+            name_str = act_name.strip()
+            if name_str:
+                DEFAULT_AD_ACCOUNT['name'] = name_str
+
+    response: Dict[str, Any] = {
+        'status': 'success',
+        'access_token_configured': True
+    }
+
+    if DEFAULT_AD_ACCOUNT:
+        response['default_ad_account'] = DEFAULT_AD_ACCOUNT
+
+    return response
+
+
 @mcp.tool()
 def list_ad_accounts() -> Dict:
     """List down the ad accounts and their names associated with your Facebook account.
