@@ -14,7 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code
 COPY . ./
 
-# Expose port if needed, though MCP uses stdio
+# Expose the HTTP port used when running inside Smithery containers
+EXPOSE 8081
 
-# Command to run the MCP server. The Facebook token must be provided via --fb-token argument.
-CMD ["python", "server.py", "--fb-token", "dummy_facebook_access_token"]
+# Command to run the MCP server. The Smithery runtime injects configuration via
+# the MCP_CONFIG environment variable and sets the PORT for HTTP operation.
+CMD ["python", "server.py"]
