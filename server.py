@@ -1,10 +1,13 @@
 # server.py
-from mcp.server.fastmcp import FastMCP
-import requests
-from typing import Dict, List, Optional, Any
+import importlib
 import json
-import requests
+import os
 import sys
+from typing import Any, Dict, List, Optional
+
+import requests
+from mcp.server.fastmcp import FastMCP
+from starlette.middleware.cors import CORSMiddleware
 
     
 
@@ -18,16 +21,66 @@ DEFAULT_AD_ACCOUNT_FIELDS = [
     'created_time', 'id'
 ]
 
+# Obtain FastMCP helpers dynamically to support multiple library versions
+_fastmcp_module = importlib.import_module("mcp.server.fastmcp")
+streamable_http_app = getattr(_fastmcp_module, "streamable_http_app", None)
+
 # Create an MCP server
 mcp = FastMCP("fb-api-mcp-server")
 
 # Add a global variable to store the token
 FB_ACCESS_TOKEN = None
 
+# Cache for MCP configuration provided via environment variables
+CONFIG_CACHE: Optional[Dict[str, Any]] = None
+_CONFIG_LOAD_ERROR_LOGGED = False
+
 # Cache for automatically resolving a default ad account.
 DEFAULT_AD_ACCOUNT: Optional[Dict[str, Any]] = None
 
 # --- Helper Functions ---
+
+def _load_config_from_env() -> Dict[str, Any]:
+    """Parse MCP configuration from the ``MCP_CONFIG`` environment variable."""
+
+    global CONFIG_CACHE, _CONFIG_LOAD_ERROR_LOGGED
+
+    if CONFIG_CACHE is not None:
+        return CONFIG_CACHE
+
+    config_raw = os.environ.get("MCP_CONFIG")
+    if not config_raw:
+        CONFIG_CACHE = {}
+        return CONFIG_CACHE
+
+    try:
+        CONFIG_CACHE = json.loads(config_raw)
+    except json.JSONDecodeError as exc:
+        if not _CONFIG_LOAD_ERROR_LOGGED:
+            print(f"Warning: Failed to parse MCP_CONFIG environment variable: {exc}")
+            _CONFIG_LOAD_ERROR_LOGGED = True
+        CONFIG_CACHE = {}
+
+    return CONFIG_CACHE
+
+
+def _ensure_fb_token_from_config() -> bool:
+    """Populate ``FB_ACCESS_TOKEN`` from MCP configuration when available."""
+
+    global FB_ACCESS_TOKEN
+
+    if FB_ACCESS_TOKEN:
+        return True
+
+    config = _load_config_from_env()
+    token = config.get("fbToken") if isinstance(config, dict) else None
+    if token:
+        FB_ACCESS_TOKEN = token
+        print("Using Facebook token from MCP_CONFIG environment variable")
+        return True
+
+    return False
+
 
 def _get_fb_access_token() -> str:
     """
@@ -42,6 +95,8 @@ def _get_fb_access_token() -> str:
     """
     global FB_ACCESS_TOKEN
     if FB_ACCESS_TOKEN is None:
+        if _ensure_fb_token_from_config():
+            return FB_ACCESS_TOKEN
         # Look for --fb-token argument
         if "--fb-token" in sys.argv:
             token_index = sys.argv.index("--fb-token") + 1
@@ -2417,7 +2472,39 @@ def get_activities_by_adset(
     return _make_graph_api_call(url, params)
 
 
+def _create_http_app():
+    """Create the Streamable HTTP app with Smithery-specific middleware."""
+
+    base_app_factory = streamable_http_app if callable(streamable_http_app) else None
+    starlette_app = base_app_factory(mcp) if base_app_factory else mcp.streamable_http_app()
+
+    starlette_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["https://smithery.ai"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+        allow_credentials=True,
+    )
+
+    @starlette_app.middleware("http")
+    async def ensure_config(request, call_next):
+        _ensure_fb_token_from_config()
+        return await call_next(request)
+
+    _ensure_fb_token_from_config()
+
+    return starlette_app
+
+
 if __name__ == "__main__":
-    _get_fb_access_token()
-    mcp.run(transport='stdio')
+    port_env = os.getenv("PORT")
+    if port_env is not None:
+        port_value = int(port_env) if port_env else 8081
+        app = _create_http_app()
+        import uvicorn
+
+        uvicorn.run(app, host="0.0.0.0", port=port_value)
+    else:
+        _get_fb_access_token()
+        mcp.run(transport='stdio')
     

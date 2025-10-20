@@ -1,7 +1,13 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 
+runtime: "container"
+
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."
+
 startCommand:
-  type: stdio
+  type: http
   configSchema:
     # JSON Schema defining the configuration options for the MCP.
     type: object
@@ -11,9 +17,5 @@ startCommand:
       fbToken:
         type: string
         description: Facebook Access Token to be used with the server.
-  commandFunction:
-    # A JS function that produces the CLI command based on the given config to start the MCP on stdio.
-    |-
-    (config) => `python server.py --fb-token ${config.fbToken}`
   exampleConfig:
     fbToken: dummy_facebook_access_token
