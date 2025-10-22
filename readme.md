@@ -144,8 +144,8 @@ This project is licensed under the MIT License.
 
 ## Installing via Smithery
 
-To install Facebook Ads Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@adsinsight-ai/facebook-ads-mcp-server):
+To install Facebook Ads Server automatically via [Smithery](https://smithery.ai/server/@adsinsight-ai/facebook-ads-mcp-server):
 
 ```bash
-npx -y @smithery/cli install @adsinsight-ai/facebook-ads-mcp-server --client claude
+npx -y @smithery/cli install @adsinsight-ai/facebook-ads-mcp-server
 ```
