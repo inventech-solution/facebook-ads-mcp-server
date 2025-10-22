@@ -23,7 +23,8 @@
       ],
       "env": {
         "DEBUG": "${user_config.debug_mode}",
-        "PYTHONPATH": "${__dirname}/lib"
+        "PYTHONPATH": "${__dirname}/lib",
+        "FB_DEFAULT_ACT_ID": "${user_config.facebook_ad_account_id}"
       },
       "cwd": "${__dirname}"
     }
@@ -132,6 +133,13 @@
       "description": "Facebook User Access Token with necessary permissions (e.g., ads_read)",
       "required": true,
       "sensitive": true
+    },
+    "facebook_ad_account_id": {
+      "type": "string",
+      "title": "Default Ad Account ID",
+      "description": "Optional default Facebook Ad Account ID (e.g., act_1234567890) to use when an act_id is not provided",
+      "required": false,
+      "sensitive": false
     },
     "debug_mode": {
       "type": "boolean",
