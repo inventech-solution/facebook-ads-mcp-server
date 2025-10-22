@@ -38,6 +38,97 @@ _CONFIG_LOAD_ERROR_LOGGED = False
 # Cache for automatically resolving a default ad account.
 DEFAULT_AD_ACCOUNT: Optional[Dict[str, Any]] = None
 
+
+def _set_default_ad_account(act_id: str, act_name: Optional[str] = None) -> bool:
+    """Store the default ad account details using normalized identifiers."""
+
+    global DEFAULT_AD_ACCOUNT
+
+    if not isinstance(act_id, str) or not act_id.strip():
+        return False
+
+    normalized_id = _normalize_act_id(act_id)
+    DEFAULT_AD_ACCOUNT = {'id': normalized_id}
+
+    if isinstance(act_name, str):
+        name_str = act_name.strip()
+        if name_str:
+            DEFAULT_AD_ACCOUNT['name'] = name_str
+
+    return True
+
+
+def _ensure_default_ad_account_from_config_sources() -> bool:
+    """Populate ``DEFAULT_AD_ACCOUNT`` from environment or CLI configuration."""
+
+    global DEFAULT_AD_ACCOUNT
+
+    if DEFAULT_AD_ACCOUNT is not None:
+        return True
+
+    candidate_id: Optional[str] = None
+    candidate_name: Optional[str] = None
+
+    def _extract_from_mapping(mapping: Optional[Dict[str, Any]]) -> None:
+        nonlocal candidate_id, candidate_name
+
+        if not isinstance(mapping, dict):
+            return
+
+        if candidate_id is None:
+            for key in (
+                'defaultActId',
+                'actId',
+                'default_ad_account_id',
+                'facebook_ad_account_id',
+            ):
+                value = mapping.get(key)
+                if isinstance(value, str) and value.strip():
+                    candidate_id = value.strip()
+                    break
+
+        if candidate_name is None:
+            for key in (
+                'defaultActName',
+                'actName',
+                'default_ad_account_name',
+                'facebook_ad_account_name',
+            ):
+                value = mapping.get(key)
+                if isinstance(value, str) and value.strip():
+                    candidate_name = value.strip()
+                    break
+
+    config = _load_config_from_env()
+    _extract_from_mapping(config)
+    if isinstance(config, dict):
+        _extract_from_mapping(config.get('user_config'))
+
+    if candidate_id is None:
+        env_id = os.environ.get("FB_DEFAULT_ACT_ID")
+        if isinstance(env_id, str) and env_id.strip():
+            candidate_id = env_id.strip()
+            env_name = os.environ.get("FB_DEFAULT_ACT_NAME")
+            if isinstance(env_name, str) and env_name.strip():
+                candidate_name = env_name.strip()
+
+    if candidate_id is None and "--default-act-id" in sys.argv:
+        id_index = sys.argv.index("--default-act-id") + 1
+        if id_index >= len(sys.argv):
+            raise Exception("--default-act-id argument provided but no value followed it")
+        candidate_id = sys.argv[id_index]
+
+        if "--default-act-name" in sys.argv:
+            name_index = sys.argv.index("--default-act-name") + 1
+            if name_index >= len(sys.argv):
+                raise Exception("--default-act-name argument provided but no value followed it")
+            candidate_name = sys.argv[name_index]
+
+    if candidate_id:
+        return _set_default_ad_account(candidate_id, candidate_name)
+
+    return False
+
 # --- Helper Functions ---
 
 def _load_config_from_env() -> Dict[str, Any]:
@@ -115,7 +206,13 @@ def _get_default_ad_account(force_refresh: bool = False) -> Dict[str, Any]:
     """Fetch and cache the first accessible ad account for the current token."""
     global DEFAULT_AD_ACCOUNT
 
-    if force_refresh or DEFAULT_AD_ACCOUNT is None:
+    if force_refresh:
+        DEFAULT_AD_ACCOUNT = None
+
+    if DEFAULT_AD_ACCOUNT is None:
+        _ensure_default_ad_account_from_config_sources()
+
+    if DEFAULT_AD_ACCOUNT is None:
         access_token = _get_fb_access_token()
         url = f"{FB_GRAPH_URL}/me"
         params = {
@@ -353,14 +450,7 @@ def set_access_token(
     DEFAULT_AD_ACCOUNT = None
 
     if act_id:
-        normalized_id = _normalize_act_id(act_id)
-        DEFAULT_AD_ACCOUNT = {
-            'id': normalized_id
-        }
-        if act_name:
-            name_str = act_name.strip()
-            if name_str:
-                DEFAULT_AD_ACCOUNT['name'] = name_str
+        _set_default_ad_account(act_id, act_name)
 
     response: Dict[str, Any] = {
         'status': 'success',
